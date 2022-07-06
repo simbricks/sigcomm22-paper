@@ -1,0 +1,168 @@
+\section{Simulation Background}
+Simulators employ techniques such as discrete event
+simulation, binary translation, and hardware virtualization, to
+simulate system components at various scales and levels of detail.
+%
+Network simulators, such as ns-2~\cite{software:ns2},
+ns-3~\cite{software:ns3}, and OMNeT++~\cite{varga:omnetpp}, use
+discrete event simulation to model packets traversing network
+topologies.
+%
+Computer architecture simulators, such as gem5~\cite{binkert:gem5},
+QEMU~\cite{software:qemu}, and Simics~\cite{magnusson:simics},
+simulate full computer systems capable of running unmodified guest
+software, including operating systems, with different and sometimes
+configurable degrees of detail.
+%
+These simulators also include I/O devices, but often only implement
+the minimum features for basic functionality.
+%
+Hardware RTL simulations, such as xsim~\cite{software:vivado_sim} and
+Verilator~\cite{software:verilator}, help test and debug hardware
+designs cycle by cycle against testbenches.
+%
+In all three cases
+\emph{individual components are simulated in isolation}.
+
+\paragraph{Advantages.}
+The main motivation for simulation is that a physical implementation is often
+not feasible.
+%
+Simulations are also \emph{portable}
+as they decouple the simulated system from the host system.
+%
+Many are deterministic (with explicit seeds for randomness), providing
+\emph{reproducible results}.
+%
+Simulators are also \emph{flexible}; implemented as software they can
+be modified, and frequently offer parameters representing a broad
+range of configurations.
+%
+Finally, simulations provide great \emph{visibility}, and can log
+details about the system, without affecting behavior.
+
+\paragraph{Disadvantages.}
+Simulations also have some common drawbacks.
+%
+\emph{Long simulation times} are common -- architectural simulators
+often only simulate hundreds or thousands of system cycles a
+second~\cite{sutherland:nebula,karandikar:firesim}, and simulating a
+few milliseconds of a large scale topology in ns-3 can take many
+hours.
+%
+Different simulators strike different trade-offs between accuracy and
+simulation time, depending on the intended use-case.
+%
+Finally, simulation results are only as good as the simulator, and may
+not be representative unless \emph{validated} against a physical
+testbed.
+
+\paragraph{Comparison to Emulation.}
+Emulations replicate externally visible behavior of a system without
+modeling internal details, and typically run at close to interactive
+speeds.
+%
+For example, Mininet~\cite{lantz:mininet} emulates OpenFlow networks with
+multiple end-hosts running real Linux applications at near native speed on a
+single physical host, by using Linux containers and kernel network features.
+%
+However, as emulation uses wall-clock time, it only works as long as
+all components can keep up in real time.
+%
+Simulations, in contrast, rely on virtual time which can slow down without
+affecting simulated behavior.
+%
+Additionally, emulation does not model internals of a system that could affect
+system behavior, e.g., interactions between NIC and drivers.
+%
+As such, emulation is primarily useful for interactive testing or performance
+evaluation when fidelity is not crucial.
+
+
+
+
+\section{Systems Research Challenges}
+\label{ssec:bg:sysresearch}
+%
+Systems research faces additional challenges that complicate using
+simulation during prototyping and evaluation.
+
+\begin{figure}%
+\centering%
+\input{figures/dctcp.gnuplot.tex}%
+\caption{Throughput for two dctcp flows in ns-3, a physical
+      testbed, and a \sysname end-to-end simulation.}%
+\label{fig:dctcp}%
+\Description{Line graph showing the throughput on the y-axis and the
+  dctcp marking threshold K for three configurations: a physical
+  testbed (the ground thruth), a conventional network-only ns-3
+  simulation, and \sysname (with gem5, i40e, and ns-3). The lines for
+  the physical testbed and \sysnets match closely with just minor
+  discrepancies. ns-3 on the other hand immediately reaches line-rate
+  at K=10, where the physical testbed still only manages 6\,Gbps.}
+\end{figure}
+
+\paragraph{Not end-to-end.}
+First and foremost, \emph{no existing simulator covers all
+required components for network systems with sufficient features and
+detail}, precluding end-to-end evaluation.
+%
+While existing simulators cover individual components, such as computer
+architecture, hardware devices, and networks, they only do so in isolation with
+no mechanism for combining them into complete systems.
+%
+As a result, we are left with non-end-to-end ``piecemeal'' evaluation,
+where different components are evaluated in isolation~\cite{
+  arashloo:tonic,mittal:irn,handley:ndp}.
+
+We illustrate the pitfalls of piecemeal evaluation by comparing
+dctcp~\cite{alizadeh:dctcp} congestion control behavior
+in the ns-3 network simulator to a physical testbed.
+%
+As network speed increases and bottlenecks move to end-hosts,
+congestion control incurs small variations in timing in the host
+hardware and software which can affect
+behavior~\cite{alizadeh:dctcp,mittal:timely,kumar:swift}.
+%
+However, ns-3 only models network and protocol behavior, and as
+a result, does not capture these factors.
+%
+We set up two clients and two servers sharing a single 10G
+bottleneck link with a 4000B MTU, and one large TCP flow
+generated by iperf for each client-server pair.
+%
+\autoref{fig:dctcp} shows the throughput for varying dctcp
+marking thresholds $K$.
+%
+The marking threshold balances queuing latency and throughput; a lower
+threshold reduces queue length but risks under-utilizing links.
+%
+ns-3 underestimates the necessary threshold~\cite{alizadeh:dctcp} to
+achieve line rate, as it does not model host processing variations,
+particularly processing delay caused by OS interrupt scheduling.
+%
+Only an end-to-end evaluation of the full system captures such
+intricacies.
+
+\paragraph{Not scalable.}
+Network and distributed systems frequently require evaluation on clusters beyond
+tens of hosts to demonstrate scalability.
+%
+But for most simulators, already long simulation times increase super-linearly
+with the size of the simulated system, making simulation of a large network
+system an infeasible task.
+
+\paragraph{Not modular.}
+Using simulators for systems research often requires extending
+existing simulators with additional functionality, \eg, adding a new
+NIC to an architecture simulator.
+%
+These extensions are tied to a particular simulator, as different
+simulators lack common internal interfaces,
+%
+This complicates apples-to-apples comparisons for future work that may use a
+different simulator, \eg, to simulate a host with a different NIC, forcing the
+same simulator to be used throughout the project cycle.
+%
+Finally, this tight integration complicates the implementation and releasing of
+such extensions, as they often require maintaining a fork of the full simulator.

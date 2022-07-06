@@ -1,0 +1,206 @@
+\documentclass[sigconf,9pt,screen]{acmart}
+\PassOptionsToPackage{hyphens}{url}\usepackage{hyperref}
+\usepackage[english]{babel}
+\usepackage{graphicx}
+\usepackage{xspace}
+\usepackage{booktabs}
+%\usepackage{amssymb}
+\usepackage{xfp}
+\usepackage{siunitx}
+\usepackage{listings}
+\usepackage{algorithmicx}
+\usepackage[noend]{algpseudocode}
+\usepackage{multirow}
+\usepackage[inline]{enumitem}
+\usepackage{listings}
+\usepackage[normalem]{ulem} % strike trhough \sout
+\usepackage{comment}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usepackage{gnuplot-lua-tikz}
+
+
+\bibliographystyle{ACM-Reference-Format}
+\microtypecontext{spacing=nonfrench}
+
+% enable page numbers
+\settopmatter{printfolios=true}
+
+% As provided by SIGCOMM hotcrp
+\acmYear{2022}\copyrightyear{2022}
+\acmConference[SIGCOMM '22]{ACM SIGCOMM 2022 Conference}{August 22--26, 2022}{Amsterdam, Netherlands}
+\acmBooktitle{ACM SIGCOMM 2022 Conference (SIGCOMM '22), August 22--26, 2022, Amsterdam, Netherlands}
+\acmDOI{10.1145/3544216.3544253}
+\acmISBN{978-1-4503-9420-8/22/08}
+\setcopyright{cc}
+\setcctype{by}
+
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10003033.10003079.10003081</concept_id>
+<concept_desc>Networks~Network simulations</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10003033.10003106.10003110</concept_id>
+<concept_desc>Networks~Data center networks</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10003033.10003058.10003064.10011660</concept_id>
+<concept_desc>Networks~Network servers</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10003033.10003058.10003064.10011657</concept_id>
+<concept_desc>Networks~Network adapters</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10003033.10003058.10003059.10003061</concept_id>
+<concept_desc>Networks~Bridges and switches</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10010583.10010588.10010593</concept_id>
+<concept_desc>Hardware~Networking hardware</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10010583.10010588.10010590</concept_id>
+<concept_desc>Hardware~Buses and high-speed links</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Networks~Network simulations}
+\ccsdesc[300]{Networks~Data center networks}
+\ccsdesc[500]{Networks~Network servers}
+\ccsdesc[500]{Networks~Network adapters}
+\ccsdesc[300]{Networks~Bridges and switches}
+\ccsdesc[300]{Hardware~Networking hardware}
+\ccsdesc[300]{Hardware~Buses and high-speed links}
+
+\keywords{Modular Simulation, End-to-End Evaluation, Network Systems}
+
+\usepackage{titlesec}
+\titlespacing*{\paragraph}{9pt}{1.4mm}{1.4mm}
+
+\def\Snospace~{\S{}}
+\def\sectionautorefname{\Snospace}
+\def\subsectionautorefname{\Snospace}
+\def\subsubsectionautorefname{\Snospace}
+\renewcommand\figurename{Fig.}
+\renewcommand*\figureautorefname{Fig.}
+\renewcommand\tablename{Tab.}
+\renewcommand*\tableautorefname{Tab.}
+
+\newcommand{\plotscale}{0.65}
+
+\usepackage{xcolor}
+
+\newcommand{\sysname}{SimBricks\xspace}
+\newcommand{\eg}{e.g.\xspace}
+\newcommand{\ie}{i.e.\xspace}
+\newcommand{\nd}{\texttt{NetDevice}\xspace}
+\newcommand{\cnd}{\texttt{CosimNetDevice}\xspace}
+
+%make sure \Call always has parens
+\renewcommand*\Call[2]{\textsc{#1}(#2)}
+
+\newsavebox{\protobox}
+\newenvironment{protomsg}[3]
+{% begin code
+  \begin{lrbox}{\protobox}
+ \begin{minipage}[t][#2][t]{#1}\small
+  \textbf{\texttt{#3:}}
+  \begin{itemize}[noitemsep,topsep=0pt,parsep=0pt,partopsep=0pt]}
+{% end code
+  \end{itemize}\end{minipage}\end{lrbox}\fbox{\usebox{\protobox}}}%
+
+\lstset{
+  basicstyle=\small,%\ttfamily,
+  xleftmargin=0pt,
+  xrightmargin=0pt,
+  breakindent=0pt,
+  resetmargins=true
+  aboveskip=0pt,
+  belowskip=-5pt,
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+% Add our artifact badges for our version
+\fancypagestyle{firstpagestyle}{
+  \addtolength{\headheight}{.6in}
+  \addtolength{\topmargin}{-.6in}
+  \fancyhead[L]{\href{https://simbricks.github.io/}
+    {\includegraphics[width=1.2in]{./figures/simbricks}}}
+  \fancyhead[R]{\href{https://conferences.sigcomm.org/sigcomm/2022/\#process}
+    {\includegraphics[width=2in]{./figures/ae_badges}}}
+}
+
+\title[\sysname: End-to-End Network System Evaluation with Modular
+Simulation]{\sysname: End-to-End Network System Evaluation\\ with Modular
+  Simulation}
+
+\author{Hejing Li}
+\orcid{0000-0001-6930-2419}
+\affiliation{%
+\institution{Max Planck Institute for Software Systems (MPI-SWS)}%
+\city{Saarbr\"{u}cken}%
+\country{Germany}}
+\email{hejingli@mpi-sws.org}
+
+\author{Jialin Li}
+\orcid{0000-0003-3530-7662}
+\affiliation{%
+\institution{National University of Singapore}%
+%\city{Singapore}%
+\country{Singapore}}
+\email{lijl@comp.nus.edu.sg}
+
+\author{Antoine Kaufmann}
+\orcid{0000-0002-6355-2772}
+\affiliation{%
+\institution{Max Planck Institute for Software Systems (MPI-SWS)}%
+\city{Saarbr\"{u}cken}%
+\country{Germany}}
+\email{antoinek@mpi-sws.org}
+
+\input{abstract}
+
+\maketitle
+
+\input{intro}
+\input{background}
+\input{approach}
+\input{design}
+\input{impl}
+\input{eval}
+\input{usecases}
+\input{discussion}
+\input{related}
+\input{conclusion}
+\makeatletter
+\if@ACM@anonymous
+\else
+\input{acks}
+\fi
+\makeatother
+
+\label{page:lastbody}
+
+\bibliography{paper,papers,strings,defs}
+
+\clearpage
+\appendix
+\input{appendix}
+
+
+\label{page:last}
+\end{document}

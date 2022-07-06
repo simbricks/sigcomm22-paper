@@ -1,0 +1,55 @@
+\section{Looking Forward}
+\label{sec:discussion}
+
+\paragraph{Validation.}
+To obtain representative simulation results, users have to
+validate simulators and configuration parameters against physical
+testbeds.
+%
+While \sysname cannot avoid this, we argue that our approach can
+reduce validation effort.
+%
+Instead of validating each combination of simulators, components can
+be validated individually and then composed.
+%
+This enables users to combine previously validated component
+configurations into a full system.
+%
+We propose a public repository of validated component simulator
+configurations to simplify re-use.
+%
+To ensure validity of these configurations over time, we imagine a
+continuous-integration system, periodically re-running configurations and
+recording the results.
+
+
+\paragraph{Beyond networking.}
+While we evaluate \sysname for network systems, our approach
+generalizes beyond networking.
+%
+We have already demonstrated that our PCIe interface can support an
+NVMe simulator.
+%
+Going forward, simulating PCIe attached accelerators, which are also
+attracting growing interest in our community, should not require
+changes to \sysname.
+%
+\sysname can also be easily extended with additional components or
+interfaces, such as CXL~\cite{spec:cxl}.
+%
+We expect the emergence of further use-cases as architecture and
+systems researchers continue to investigate specialized hardware.
+
+
+\paragraph{Evaluating ASIC designs.}
+Finally, we see evaluation of systems that include new ASIC components
+as a driving use-case in the future.
+%
+While small ASIC designs with lower clock rates can often be evaluated
+in physical testbeds with FPGAs, this is not possible for larger
+designs or designs with fast clock speeds.
+%
+\sysname, on the other hand, can simulate ASIC RTL with arbitrary
+frequencies, although FPGA accelerated RTL
+simulations~\cite{karandikar:firesim} may be required for manageable
+simulation times.

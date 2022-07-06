@@ -1,0 +1,145 @@
+\section{Introduction}
+Our community expects research ideas to be implemented and evaluated as part of
+a complete system ``end-to-end'' in realistic conditions.
+%
+End-to-end evaluation is important as many factors in each system component
+affect the overall behavior in subtle and unpredictable ways.
+
+
+Yet evaluation in full physical testbeds is frequently infeasible.
+%
+Work might require cutting edge commercial hardware that is not yet
+available at the time of
+publication~\cite{sharma:flexswitch,liu:incbricks,li:nopaxos,eris},
+develop hardware extensions to existing proprietary
+hardware~\cite{sharma:afq}, or propose entirely new ASIC hardware
+architectures~\cite{bosshart:rmt,chole:drmt,sivaraman:packet_transactions,
+sutherland:nebula,kaufmann:flexnic,jouppi:tpu,magaki:asic_clouds,
+lin:panic}.
+%
+The trend towards increasingly specialized hardware, including
+SmartNICs, programmable switches, and other accelerators, further
+exacerbates this.
+%
+Finally, work on network protocols and congestion control necessitates
+evaluation in large scale networks with hundreds to thousands of hosts.
+
+
+% KEY POINT: simulation could help, but existing simulators fall short
+When a full evaluation in a physical testbed is not possible,
+simulation has long offered an alternative.
+%
+In networking, we use ns-2~\cite{software:ns2},
+ns-3~\cite{software:ns3}, and OMNeT++~\cite{varga:omnetpp} to evaluate
+protocols and algorithms;
+computer architects rely on system simulators such as
+gem5~\cite{binkert:gem5},
+while hardware designers employ RTL simulators such as
+Modelsim~\cite{software:modelsim} or
+Verilator~\cite{software:verilator}.
+%
+While network systems do benefit from these
+simulators~\cite{arashloo:tonic,mittal:irn,kaufmann:tas}, they do not
+enable end-to-end evaluation, as no existing simulator simulates all
+required components in a testbed: hosts, devices, and the full network.
+
+In this paper, we demonstrate how to enable end-to-end network system simulation
+by combining different simulators to cover the necessary functionality.
+%
+Instead of building a new simulator, throwing away decades of work, we connect
+existing and new simulators -- for hosts, hardware devices, and networks -- into
+full system simulations capable of running unmodified operating systems,
+drivers, and applications.
+%
+Existing simulators, however, are standalone and not designed to be
+combined with other simulators.
+%
+To achieve modular end-to-end simulation, we thus need to overcome
+three technical challenges:
+1) no interfaces to connect simulators together,
+2) efficient, scalable, and correct synchronization of simulator clocks, and
+3) combining mutually incompatible simulation models.
+
+
+We present the design and implementation of \emph{\sysname, a modular
+simulation framework for end-to-end network system simulations}.
+%
+\sysname defines interfaces for interconnecting simulators based on
+natural component boundaries in physical systems, specifically
+PCIe and Ethernet links.
+%
+Individual component simulators run in \emph{parallel} as separate processes,
+and communicate via message passing only between connected peers through
+optimized shared memory queues.
+%
+With this message transport, we co-design a protocol that leverages
+simulation topology and latency at component boundaries for
+\emph{efficient and accurate synchronization} of simulator clocks.
+%
+For scaling out simulations across physical hosts, we introduce
+a proxy to forward messages over TCP or RDMA.
+
+Currently, \sysname integrates QEMU~\cite{software:qemu} and
+gem5~\cite{binkert:gem5} as host simulators,
+Verilator~\cite{software:verilator} as an RTL hardware simulator for
+hardware devices,
+and ns-3~\cite{software:ns3}, OMNeT++~\cite{varga:omnetpp}, as well
+as the Intel Tofino simulator~\cite{software:p4studio} for
+network simulation.
+%
+Further, we have integrated open source RTL designs for the Corundum
+FPGA NIC~\cite{forencich:corundum} and the
+Menshen switch pipeline~\cite{wang:menshen} to showcase \sysname{}'s
+generality.
+%
+We have also implemented fast behavioral simulators, \eg for
+the Intel X710 40G NIC~\cite{spec:intel_x710}, and ported the
+FEMU NVMe SSD model~\cite{li:femu} into \sysname.
+%
+In combination, these simulators enable a broad range of end-to-end
+configurations for different use-cases.
+
+In our evaluation, we demonstrate that \sysname enables end-to-end simulation of
+existing network systems at small and large scales.
+%
+We also reproduce key results from congestion
+control~\cite{alizadeh:dctcp},
+in-network compute~\cite{li:nopaxos},
+and FPGA NIC design~\cite{forencich:corundum} in \sysname.
+%
+\sysname obtains more realistic results compared to ns-3 in isolation
+(\S\ref{ssec:bg:sysresearch}).
+%
+\sysname also scales to 1000 hosts and NICs with only a
+14\% increase in simulation time compared to a 40-host simulation
+(\S\ref{ssec:eval:scalability}).
+%
+Finally, \sysname provides deep visibility and control of low-level system
+behaviors, facilitating evaluation and performance debugging
+(\S\ref{ssec:eval:corundum}).
+
+\smallskip\noindent
+We make the following technical contributions:
+\begin{itemize}
+  \item \emph{Modular architecture for end-to-end system simulation}
+    (\S\ref{ssec:design:interface}) combining host, device, and network
+    simulators.
+
+  \item \emph{Co-designed message transport and synchronization
+    mechanism for parallel and distributed simulations}
+    (\S\ref{ssec:design:syncproto}, \S\ref{ssec:design:transport}) leveraging
+    pairwise message passing to efficiently ensure correct simulation, even
+    at scale.
+
+  \item \sysname, a \emph{prototype implementation} of our
+    architecture (\S\ref{sec:impl}) with integrations for
+    existing and new simulators.
+    %
+\end{itemize}
+
+\noindent
+\sysname is available open source at \url{https://simbricks.github.io}
+
+\noindent
+This work does not raise any ethical issues.
+

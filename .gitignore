@@ -1,0 +1,8 @@
+.latex.out/
+*.pdf
+!large_scale.pdf
+old/
+.vscode
+updatebib
+arxiv.tar.gz
+arxiv/

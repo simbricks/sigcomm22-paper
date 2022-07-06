@@ -1,0 +1,296 @@
+\noindent
+\emph{Appendices are supporting material that has not been
+peer-reviewed.}
+
+\section{Appendix}
+
+\subsection{Modular Simulation Orchestration}
+\label{ssec:appendix:orchestration}
+Finally, an operational challenge arises for running simulations with \sysname.
+Because we design \sysname without any centralized control, a simulation
+consists entirely of interconnected component simulators.
+Thus, to run a complete end-to-end simulation, a user has to start each
+individual component simulator, while providing unique paths for the Unix
+sockets and shared memory regions for each channel.
+While this is manageable with very small simulations, the complexity rapidly
+grows with simulation size, along with the additional challenges of cleanup,
+collecting simulation logs, and monitoring for crashes.
+An additional challenge, especially when running multiple simulations in
+parallel, is that performance drastically degrades when overcommitting cores or
+memory.
+\sysname addresses both challenges with an orchestration framework for
+assembling, running, and, if necessary, scheduling simulations.
+
+\begin{figure}[h]%
+\begin{lstlisting}[language=Python]
+from simbricks import *
+for rate in [10, 100, 200, 500, 1000]:
+  e = Experiment('udp-' + str(rate))
+  net = SwitchBM(e)
+
+  s = Gem5Host(e, 'server')
+  s.nic = I40eNIC(e)
+  s.node_config = I40eLinuxNode()
+  s.node_config.ip = '10.0.0.1'
+  s.node_config.app = IperfUDPServer()
+
+  c = Gem5Host(e, 'client')
+  c.nic = I40eNIC(e)
+  c.node_config = I40eLinuxNode()
+  c.node_config.ip = '10.0.0.2'
+  c.node_config.app = IperfUDPClient()
+  c.node_config.app.server = '10.0.0.1'
+  c.node_config.app.rate = rate
+
+  experiments.append(e)
+\end{lstlisting}\vspace{0.5em}%
+\caption{An example of a simulation configuration in the \sysname
+  orchestration framework.}%
+\label{fig:orchestration}%
+\Description{This figure shows pseudo-code but the text is included as
+  in the PDF and as such should be accessible.}%
+\end{figure}
+
+Similar to other simulators with modular configuration we also implement our
+orchestration in a scripting language.
+The \sysname orchestration framework is designed as a collection of python
+modules, and simulation experiments can be assembled by relying on arbitrary
+python features.
+In addition to the previously mentioned tasks, we also integrate functionality
+to automatically generate customized disk images for host simulators, \eg with
+different IP address configurations or to run applications with separate
+parameters in individual hosts.
+In \autoref{fig:orchestration} we show an example script.
+
+
+\subsection{Inter-Simulator Message Transport}
+\label{sec:appendix:shm}
+
+\begin{figure}%
+\begin{algorithmic}[0]%
+  \State rxQueue, rxLen $\gets$ \Call{MapQueue}{rx}
+  \State rxHead $\gets 0$
+  \State txQueue, txLen $\gets$ \Call{MapQueue}{tx}
+  \State txTail $\gets 0$
+  \State
+  \Procedure{PollMsg}{}
+    \State msg $\gets$ \&rxQueue[rxHead]
+    \While{msg->owner $\ne$ \texttt{CONSUMER}}
+      \State \Call{Spin}{}
+    \EndWhile
+    \State \Call{ReadMemoryBarrier}{}
+    \State rxHead $\gets$ (rxHead + 1) \% rxLen
+    \State \Return{msg}
+  \EndProcedure
+  \Procedure{ReleaseMsg}{msg}
+    \State msg->owner $\gets$ \texttt{PRODUCER}
+  \EndProcedure
+  \Procedure{AllocMsg}{}
+    \State msg $\gets$ \&txQueue[txTail]
+    \While{msg->owner $\ne$ \texttt{PRODUCER}}
+      \State \Call{Spin}{}
+    \EndWhile
+    \State txTail $\gets$ (txTail + 1) \% txLen
+    \State \Return{msg}
+  \EndProcedure
+  \Procedure{EnqueueMsg}{msg}
+    \State \Call{WriteMemoryBarrier}{}
+    \State msg->owner $\gets$ \texttt{CONSUMER}
+  \EndProcedure
+\end{algorithmic}%
+\caption{\sysname multi-core shared memory message passing queue.
+  \textsc{ReadMemoryBarrier} and \textsc{WriteMemoryBarrier} are compiler
+  barriers to prevent re-ordering during optimization.}%
+\label{fig:shm-queue}%
+\Description{This figure shows pseudo-code but the text is included as
+  in the PDF and as such should be accessible.}%
+\end{figure}
+
+\autoref{fig:shm-queue} shows pseudocode for the \sysname queue implementation.
+To enable zero-copy implementation in simulators producer and consumer each have
+separate functions for getting access to an available queue slot,
+\textsc{PollMsg} for the consumer and \textsc{AllocMsg} for the producer, and
+then releasing in when processing is complete, \textsc{ReleaseMsg} for the
+consumer and \textsc{EnqueueMsg} for the producer.
+The consumer uses its local head pointer to determine the slot the next message
+is or will be in and then checks the type and ownership byte, re-trying if the
+slot is marked by as owned by the producer.
+After the consumer completes processing a message it marks the message as owned
+by the consumer.
+Symmetrically, the producer uses its local tail pointer to determine the slot
+for the next message, if necessary waits until the slot is marked as
+producer-owned, and resets the ownership bit to consumer after it places the
+message in the slot.
+Compiler memory barriers are necessary to prevent the compiler from reordering
+memory accesses across accesses to the ownership bit, but with the strong X86
+memory model no CPU memory barriers are necessary.
+
+\subsubsection{Coherence Behavior}
+To understand the performance properties, consider three key cases,
+the queue is empty, the queue is full, and the queue is neither empty
+nor full.
+%
+When the queue is empty, the consumer will spin on the last cache
+line, which will be in the local L1 after the first access, and only
+incurs an additional when the producer updates that cache line.
+%
+When the queue is full, the producer similarly waits for the next slot
+to free up with the same coherence behavior.
+%
+Finally, when neither is the case, the consumer immediately finds a
+message when polling and incurs a necessary miss that will fetch the
+message.
+Further, the CPU hardware prefetcher will likely already fetch the
+next message as they are laid out sequentially in memory, thereby
+avoiding a demand miss (but of course incurring the same coherence
+traffic).
+The producer does have to read the ownership flag incurring a miss,
+but also immediately finds the empty slot, and the same prefetcher
+behavior applies.
+
+\subsection{\sysname Implementation Effort}
+\label{ssec:apppendix:implcode}
+\begin{table}%
+  \centering%
+  \begin{tabular}{ c c c }
+      \toprule
+      & \textbf{\sysname Component} & \textbf{Lines} \\
+      \midrule
+      \multirow{4}{50pt}{\sysname\newline core}
+      & Message transport library & 1411 \\
+      & NIC behavioral model library & 715 \\
+      & Distributed simulation proxy & 2080 \\
+      & Runtime orchestration & 2102 \\
+      \midrule
+      \multirow{2}{50pt}{Host simulators}
+      & gem5 integration & 1265 \\
+      & QEMU integration & 676 \\
+      \midrule
+      \multirow{4}{50pt}{NIC simulators}
+      & Corundum Verilator & 1315 \\
+      & Intel i40e model & 2900 \\
+      & Corundum model & 911 \\
+      & gem5 e1000 model & 2952 \\
+      \midrule
+      \multirow{5}{50pt}{Network simulators}
+      & ns-3 integration & 158 \\
+      & OMNeT++ integration & 208 \\
+      & Tofino simulator integration & 330 \\
+      & Ethernet switch model & 399 \\
+      & Menshen RMT Verilator & 391 \\
+      & Packet generator & 415 \\
+      \midrule
+      \multirow{1}{50pt}{Dev sims.}
+      & FEMU SSD integration & 1005 \\
+      \bottomrule\\
+  \end{tabular}%
+  \caption{Lines of code for the various components in \sysname, excluding
+  blank lines and comments. For integrated simulators we only count
+  adapter code.}%
+  \label{tab:impl}%
+\end{table}
+
+\autoref{tab:impl} shows a per-component breakdown of the implementation effort
+for \sysname, listing the number of lines of code.
+
+\subsection{Performance for \sysname Configurations}
+\label{ssec:appendix:simcombos}
+\begin{table}%
+\centering%
+\begin{tabular}{lllrrrc}%
+  \toprule
+    \multicolumn{3}{c}{Simulators} & & &
+    \multicolumn{1}{c}{Sim.}
+    \\
+    Host  & NIC & Net & T'put & Latency &
+    \multicolumn{1}{c}{Time} &
+    Det. \\
+    \midrule
+  \input{figures/netperf.tex} \\
+    \bottomrule\\
+\end{tabular}%
+\caption{Performance for combinations of some of our component
+    simulators.
+    %
+    Checkmarks mark deterministic combinations.
+    %
+    Host: QK is QEMU with KVM (functional simulation), QT
+    is QEMU with timing, and G5 is gem5.
+    %
+    NIC: IB is the Intel behavioral model, CB the Corundum
+    behavioral model, and CV the Corundum verilator model.
+    %
+    Network: SW is the switch behavioral model, NS is ns-3, TO is the
+    Tofino model.
+    }%
+\label{table:crossproduct}%
+\end{table}
+
+\autoref{table:crossproduct} contains a cross-product of different simulators in
+\sysname for host, NIC, and the network. This is an extended version
+of \autoref{tab:modcombo} with the same experimental setup.
+Note that with recent versions of QEMU we have found QEMU + timing
+(QT) no longer to be fully deterministic and have instead observed
+minor variations in simulation results.
+
+\clearpage
+
+\section{Artifact Appendix}
+
+\subsection*{Abstract}
+
+The \sysname artifact comprises two components, the source code of the
+main simulator, and paper-specific parts (artifact scripts,
+documentation, and data) to replicate the results in this
+paper.
+
+\subsection*{Scope}
+Users interested in using \sysname in their work should refer to the
+former, as this will continue to evolve over time, while the latter
+remains stable (modulo bug fixes) to ensure reproducible results.
+
+The artifact scripts can run all major and minor experiments in
+the paper, except for the physical testbed baseline for the dctcp
+experiments.
+%
+For deterministic simulations, results should be exactly reproducible.
+%
+Other measurements, especially simulation times, will vary based on
+the hardware, but should be approximately reproducible on
+similar hardware to what we describe.
+
+\subsection*{Contents}
+The artifact contains everything required to reproduce the results in
+the paper: source code, instructions for building and running
+\sysname, scripts for running experiments, and plotting scripts for
+the graphs in the paper. We also include most of the execution logs we
+generated for the experiments in this paper.
+
+\subsection*{Hosting}
+Both the main \sysname repo and the artifact package are hosted on
+GitHub:
+\begin{itemize}
+  \item \textbf{Main \sysname source:} \newline
+    \url{https://github.com/simbricks/simbricks}
+  \item \textbf{Artifact package:} \newline
+    \url{https://github.com/simbricks/sigcomm22-artifact}
+\end{itemize}
+
+For both we have tagged the version submitted for evaluation with
+\texttt{sigcomm22-ae-submission}, and a stable version potentially
+receiving bug-fixes will remain in the \texttt{sigcomm22-ae} branch.
+The \texttt{main} branch will evolve and might contain breaking
+changes.
+
+We have also built docker specifically for the artifact that we link to in the
+artifact README file.
+
+\subsection*{Requirements}
+The precise hardware requirements for each experiment vary
+significantly and are detailed in the artifact repository. All
+non-distributed experiments only require a single machine, but require
+sufficient processor cores (varies per experiment up to 44). The
+largest experiments also require around 192\,GB of RAM.
+
+We have tested \sysname on Linux. The specific software dependencies
+are provided by the documentation in the artifact repo.

@@ -1,0 +1,85 @@
+\section{Related Work}
+
+\paragraph{Parallel \& distributed simulation.}
+dist-gem5~\cite{mohammad:distgem5} and pd-gem5~\cite{alian:pd-gem5}
+connect multiple gem5 instances for parallel and distributed
+simulations and synchronize with global barriers.
+%
+Graphite~\cite{miller:graphite} also parallelizes a multi-core
+simulation across cores and machines, but uses approximate
+synchronization where causality errors are possible.
+%
+Similar to gem5, Simics~\cite{magnusson:simics} also supports full
+system simulation and runs unmodified operating systems and
+applications, and multiple Simics processes can be connected to
+simulate networked systems.
+%
+\sysname connects multiple different simulators together using
+fixed interfaces, and synchronizes them accurately with a
+synchronization protocol that leverages the simulation structure.
+
+ns-3 adds support for distributed simulation in version 3.8~\cite{dist-ns3}.
+%
+It uses a similar conservative look-ahead protocol with explicit
+synchronization for correctness,and relies on the Message Passing
+Interface (MPI) to connect multiple ns-3 processes.
+%
+MPI decouples ns-3 from the choice of message transport, directly
+supporting distributed simulations over various interconnects, but
+incurs the cost of this abstraction in every process.
+%
+\sysname instead closely couples synchronization and adapters to
+our optimized shared memory queues (implementation is inlined from
+shared headers), minimizing communication overhead in
+simulator adapters.
+%
+\sysname scales out through proxies that decouple individual
+simulators from the choice and overhead of distributed
+transport (RDMA, sockets), at the cost of typically one core per
+physical simulation host.
+
+\paragraph{Co-simulation of multiple simulators.}
+gem5 supports the integration of systemC
+code~\cite{menard:gem5systemc} to implement hardware models, by
+linking them into the gem5 binary and embedding the systemC event loop
+with the gem5 event loop.
+%
+\sysname instead interconnects multiple heterogeneous simulators with
+potentially completely different simulation models.
+%
+The Structural Simulation Toolkit (SST)~\cite{rodrigues:sst} is a
+modular simulation framework for HPC clusters, uses a parallel
+discrete event simulation with global epoch synchronization, and
+defines common interfaces to link in various \textit{component}
+simulators.
+%
+Unlike \sysname, SST requires deep integration of simulators into one
+simulation loop resulting in integration challenges.
+%
+SST does also not define fixed component interfaces for specific
+components, instead compatibility is up to individual simulators.
+
+\paragraph{Full system emulation.}
+Prior work on emulation has provided a path closer to end-to-end
+evaluation without matching physical testbeds.
+%
+Mininet~\cite{lantz:mininet} emulates network topologies and hosts
+through Linux networking and container features, running real
+applications and using the host kernel for protocol processing.
+%
+ns-3 direct code execution (DCE)~\cite{tazaki:dce} integrates a
+Linux Kernel instance as a libOS into ns-3 and connects its
+network interface to ns-3 topologies.
+%
+Both systems offer lower run-times compared to \sysname, but at the cost of not
+modeling low-level details, such as caches or PCIe interactions with devices, and
+other bottlenecks on the physical system.
+%
+Finally, other work has relied on emulating NIC or switch
+functionality on dedicated processors, while running the rest of the
+system natively~\cite{kaufmann:flexnic,li:nopaxos}.
+%
+Simulations incur higher run-times but can control the level of details in the
+model, and enable adjustment of relative performance of components by operating
+on virtual time.
+

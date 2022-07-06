@@ -1,0 +1,115 @@
+\section{\sysname for System Evaluation}
+Finally, we show \sysname end-to-end simulations can aid
+evaluation, by providing more visibility and control than a
+physical testbed, and by accurately simulating unavailable hardware.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Use-Case: NIC Hardware Architecture}
+\label{ssec:eval:corundum}
+%
+Using Corundum as an example, we show that \sysname simulations can
+provide insights that are challenging to obtain from physical
+testbeds.
+%
+The original Corundum evaluation shows significantly lower throughput
+for a 1500B MTU compared to the ConnectX-5 NIC they compare to.
+%
+While developing our Corundum simulators, we found the root cause reason for
+this.
+%
+Corundum relies on reading the head index registers of receive descriptor queues
+to identify new entries, while for most other NICs, drivers instead directly
+poll descriptors in memory.
+%
+MMIO reads stall the processor until the device returns a result,
+while with DDIO descriptor reads typically hit in the L3 cache.
+%
+For CPU-bound workloads this degrades performance.
+
+\paragraph{Leveraging simulation visibility \& flexibility.}
+Our debugging effort was greatly facilitated by the simulator logs provided by
+\sysname.
+%
+Synchronized simulations can produce detailed logs without affecting
+system behavior.
+%
+We leveraged this to trace PCI activity, NIC activity, and CPU
+activity, and combined those into an end-to-end view of the RPC latency.
+%
+We further confirm this by doubling the simulated PCIe latency to
+1\,$\mu$s in gem5 with the Corundum and Intel behavioral simulators.
+%
+When PCIe latency doubles, Corundum throughput reduces by 21.2\%,
+while the Intel NIC throughput remains unchanged.
+%
+Our experience demonstrates that \emph{simulators can offer greater visibility
+and the flexibility to change key parameters that are fixed in physical
+systems.}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Use-Case: In-Network Processing}
+\label{ssec:eval:nopaxos}
+Work leveraging programmable switches for application acceleration
+requires end-to-end measurements for a meaningful evaluation.
+%
+However, many of these works rely on functionality not (yet) available
+in off-the-shelf hardware at publication time.
+%
+We use Network-Ordered Paxos (NOPaxos)~\cite{li:nopaxos} as an example
+to demonstrate that \sysname can serve as a virtual testbed for such
+systems.
+%
+NOPaxos introduces a new network-level primitive, the Ordered
+Unreliable Multicast (OUM), which requires a single sequencer device
+in the network.
+%
+Implementing the sequencer in a programmable network switch offers the best
+performance.
+%
+However, as the required network hardware was not yet available, the authors
+relied on sequencer emulation on a network processor or an end-host
+implementation.
+%
+We implement switch support for OUM both in ns-3 and the now available Tofino
+simulator, and combine them with gem5 and the Intel NIC.
+%
+On the simulated hosts, we run the unmodified NOPaxos open source code.
+
+\paragraph{Reproducing results.}
+We use \sysname to simulate two NOPaxos configurations: a P4 switch sequencer
+running on Tofino, and an end-host sequencer implementation.
+%
+Similar to the original work, we also simulate the classic Multi-Paxos state
+machine replication protocol.
+%
+We compare the throughput-latency curves (\autoref{fig:nopaxos-seq}) to figure 6
+in the NOPaxos paper, where the switch sequencer configuration of NOPaxos achieves a
+latency of 110\,$\mu$s, while the end-host sequencer configuration has ~35\%
+higher latency; both configurations achieve similar throughput (230\,K/s).
+%
+The original paper also shows that NOPaxos (switch sequencer) achieves a
+370\% increase in throughput and a 54\% reduction in latency compared to
+Multi-Paxos.
+%
+In \sysname we find a lower baseline latency of 43\,$\mu$s for the switch
+sequencer setup, and ~23\% higher latency for the end-host sequencer
+configuration.
+%
+This is expected as the authors used a slower network processor
+to emulate switch functionality.
+%
+We also find that both systems saturate at the same throughput of 78\,K/s.
+%
+The lower throughput is because we are measuring on a single-core
+host, where application and packet processing share a core.
+%
+We confirmed this in a physical testbed by disabling all but one core,
+and measured throughput within 10\%.
+%
+When comparing to Multi-Paxos running in \sysname, NOPaxos with switch sequencer
+attains a 270\% throughput increase and 40\% latency reduction.
+We conclude that \emph{\sysname can accurately evaluate in-network processing systems.}
+

@@ -1,0 +1,198 @@
+\section{Implementation}
+\label{sec:impl}
+
+\sysname is implemented in 4206 of C/C++ and 2102 lines of Python for
+core functionality, 5348 lines for adapters in existing simulators,
+and 4556 lines for new simulators we built (details in
+\autoref{ssec:apppendix:implcode}).
+
+\subsection{Core \sysname Components}
+\label{ssec:impl:library}
+\paragraph{Libraries.}
+To reduce integration effort for simulators, we develop a common
+library that implements the \sysname messaging interfaces, and
+helper functions to parse and generate synchronization messages.
+%
+We also implement a helper library with common C++ components for
+behavioral NIC simulators (\texttt{nicbm}) that we use for
+our NIC simulators below.
+
+\paragraph{Proxies.}
+To scale out \sysname simulations,
+%
+we have implemented two proxies, one uses TCP sockets for network
+communication and the other one uses RDMA.
+%
+Both implement adaptive batching by forwarding multiple messages at once if more
+than one is available in the queue.
+%
+The RDMA proxy minimizes communication latency and CPU overhead by directly
+writing messages to remote queues.
+
+\paragraph{Orchestration.}
+Configuring and running \sysname simulations is a challenge due to the multitude
+of interconnected components involved.
+%
+We streamline simulation setups with our orchestration framework.
+%
+Users can assemble complete simulations in compact python scripts, and the
+framework is responsible for running individual components (details in
+\autoref{ssec:appendix:orchestration}).
+
+
+\subsection{Host Simulation}
+\label{ssec:impl:host}
+We have integrated two host simulators, gem5 and QEMU, that are capable of
+running unmodified operating systems and applications.
+%
+For both, we implement the \sysname adapter as a regular PCIe device
+within the simulator's device abstractions.
+
+
+\paragraph{gem5.}
+gem5 is a flexible full system simulation with configurable level of
+detail for memory and CPU.
+%
+We use version v20.0.0.1, extend it with a patch for Intel DDIO
+support~\cite{gem5_ddio}, and implement support for the functional and timing
+memory protocols.
+%
+The functional protocol is blocking, i.e., it expects device accesses and
+DMA to synchronously return results, and does not model timing.
+%
+The timing protocol models accesses as asynchronous request and
+response messages.
+%
+To reduce simulation time, we can configure gem5 to boot up with a fast
+functional CPU, and then switch to a detailed synchronized CPU.
+%
+We also implement an Ethernet adapter to connect the built-in NICs in gem5 to
+\sysname for comparison.
+
+\paragraph{QEMU.}
+We use QEMU version 5.1.92 with KVM CPU acceleration for fast
+functional simulation.
+%
+We also implement support for synchronized simulation with instruction counting
+(\texttt{icount}), in which QEMU controls the rate of instruction execution
+relative to a virtual clock.
+%
+The key challenge is modelling MMIO delays, as QEMU's device interface does not
+model timing and expects accesses to return immediately.
+%
+We work around this by aborting execution of the instruction from the
+MMIO handler and stopping the virtual CPU, only re-activating it when
+the \sysname PCIe completion event arrives.
+%
+QEMU will then re-try the instruction.
+%
+Unfortunately we have found that this QEMU version is no longer fully
+deterministic even with instruction counting.
+
+
+\subsection{NIC Simulation}
+We integrate three NIC simulators, a detailed hardware RTL model, and
+two less detailed but faster behavioral simulators.
+
+\paragraph{Corundum RTL.}
+To demonstrate realistic RTL device simulation, we use the unmodified Verilog
+implementation of the open source Corundum FPGA NIC~\cite{forencich:corundum}.
+%
+We use Verilator~\cite{software:verilator} to simulate the \texttt{interface}
+module implementing Corundum's data path, including RX, TX, descriptor queues,
+checksums, and scheduling.
+%
+As Verilator cannot simulate vendor IP Corundum uses for PCIe, DMA, and
+Ethernet, we implement them directly in the C++ testbench.
+
+
+\paragraph{Corundum behavioral.}
+To enable a fair comparison with other simulators, we also
+implement a fast behavioral simulator for Corundum in C++.
+%
+Both Corundum simulators are fully compatible with the unmodified
+upstream Linux driver~\cite{corundum_code}.
+
+
+\paragraph{Intel i40e behavioral.}
+Many recent network systems require a modern NIC compatible with
+Linux or kernel-bypass frameworks such as DPDK~\cite{software:dpdk}.
+%
+We implement a behavioral simulator for the common \texttt{i40e} Intel
+40G X710 NIC.
+%
+This simulator is compatible with unmodified drivers, and it implements
+important NIC features such as multiple descriptor queues, TCP and IP checksum
+offload, receive-side scaling, large segment offload, interrupt moderation, and
+support for MSI and MSI-X.
+
+
+\subsection{Network Simulation}
+
+\paragraph{ns-3 and OMNeT++.}
+To integrate with ns-3.31, we implement a \sysname Ethernet adapter
+class extending \nd, the ns-3 base abstraction for host network
+interfaces.
+%
+When receiving packets from our Ethernet interface, the adapter pushes them to
+the connected network channel, and vice-versa.
+%
+The adapter also implements our synchronization protocol
+(\autoref{fig:sync-proto}).
+%
+We integrate OMNeT++ with INET~\cite{software:omnetinet} analogously.
+
+\paragraph{Ethernet switch.}
+We also implement a fast simulator for a basic Ethernet switch.
+%
+In the simulation loop, the switch polls packets from each port,
+performs MAC learning, switches each packet to the corresponding
+egress port(s) according to the MAC table, and sends synchronization
+messages as necessary.
+
+\paragraph{Tofino.}
+We integrate the Tofino~\cite{product:intel:tofino} simulator provided by
+Intel~\cite{software:p4studio}, as the most popular programmable switch.
+%
+This simulator includes a cycle accurate model of the switch pipeline
+and an approximate model for queuing.
+%
+The simulator is closed source, communicates through Linux Kernel
+virtual Ethernet interfaces (\texttt{veth}), and only allows minimal
+control over timing.
+%
+To implement a synchronized adapter, we parse the output log of the
+simulator and generate packet timestamps accordingly.
+
+\paragraph{Menshen RTL.}
+Finally, we integrate the Verilog implementation of the Menshen RMT
+pipeline~\cite{wang:menshen} using Verilator and the C++ Ethernet MAC
+adapter we implemented for Corundum.
+
+\subsection{Limitations}
+\paragraph{Incompatible simulation models.}
+We do not support the gem5 atomic memory protocol where memory
+operations, including DMA and MMIO, are implemented as synchronous
+function calls that return how long the operation should take.
+%
+This is incompatible with \sysname's asynchronous PCIe interface.
+%
+For example, while the \sysname PCIe adapter is waiting for an MMIO
+completion message, no other events, such as incoming DMA requests can
+be scheduled and executed.
+
+\paragraph{Single-core hosts.}
+Both gem5 and synchronized QEMU simulate multiple cores sequentially, resulting
+in a super-linear increase in simulation time.
+%
+As host simulator internals are orthogonal, we pragmatically opt to
+restrict our evaluation to single-core hosts.
+%
+The scalable x86 simulators we
+found~\cite{miller:graphite,fu:prime,sanchez:zsim} only simulate
+applications and cannot run operating systems, precluding end-to-end
+simulation.
+%
+As future work, we envision applying our techniques to scale out existing full
+system simulators, as modern multi-cores are essentially networked
+systems~\cite{baumann:osdistsys} with message latencies.

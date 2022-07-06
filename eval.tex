@@ -1,0 +1,552 @@
+%\clearpage
+\section{Evaluation}
+\label{sec:eval}
+We now evaluate if \sysname meets our design goals
+(\autoref{ssec:approach:goals}):
+
+\begin{itemize}
+  \item Can \sysname \emph{modularly} combine simulators into
+    \emph{end-to-end} simulations?
+    How do these simulations perform?
+    (\autoref{ssec:eval:compsim})
+    \item How \textit{efficient} is the \sysname synchronization mechanism?
+        How does the overhead compare to prior approaches?
+        (\autoref{ssec:eval:syncproto})
+  \item Can \sysname enable \emph{faster} simulations by breaking down
+    large simulators into smaller, parallel simulators?
+    (\autoref{ssec:eval:decomp})
+  \item How do larger \sysname simulations \emph{scale} on a single
+    physical host and distributed across multiple physical hosts?
+    (\autoref{ssec:eval:scalability})
+  \item Does \sysname \emph{accurately} combine simulators?
+    (\autoref{ssec:eval:accurate})
+  \item Are \sysname simulations \emph{deterministic}?
+    (\autoref{ssec:eval:deterministic})
+\end{itemize}
+
+
+\subsection{Experimental Setup}
+Unless otherwise stated we use the following setup:
+%
+We run simulations on physical hosts with two 22-core Intel Xeon Gold 6152
+processors at 2.10\,GHz with 187\,GB of memory, hyper-threading disabled, and
+100\,Gbps Mellanox ConnectX-5 NICs.%
+\footnote{The testbed  only affects simulation time and unsynchronized experiments.}
+%
+All simulated hosts have a single core and 8\,GB of memory, and each runs Ubuntu
+18.04 with kernel 5.4.46 where we disabled unneeded features and drivers to
+reduce boot time.
+%
+All device drivers and applications are unmodified.
+%
+For synchronized QEMU we set a clock frequency of 4GHz.
+%
+For gem5, we use \texttt{DDR4\_2400\_16x4} memory and the \texttt{TimingSimple}
+CPU model, which simulates an in-order CPU with the timing memory protocol, and
+configure cache sizes and latencies to match those of the testbed.
+%
+We set gem5 parameters (\eg, in-order CPU clock frequency of
+8\,GHz~\footnote{Gem5 also supports an out-of-order CPU, but with
+$4-6\times$ higher simulation time, so we use the TmingSimple CPU as a
+compromise.}) to achieve the same effective instruction execution
+performance as a representative physical testbed~\cite{kaufmann:tas},
+for a Linux networking benchmark at 1.3\,cycles/inst = 0.43\,ns/inst.
+%
+Further, we set the PCIe latency, Ethernet link latency and
+synchronization interval all to 500\,ns, network bandwidth to
+10\,Gbps, and frequency for the Corundum RTL model to 250\,MHz.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{\sysname is Modular}
+\label{ssec:eval:compsim}
+\paragraph{Navigating speed-accuracy trade-offs.}
+We start by evaluating modular combinations of component simulators in
+\sysname.
+%
+As a workload, we use the \texttt{netperf} TCP benchmark to run a 10s
+throughput test (\texttt{TCP\_STREAM}) followed by a 10s latency test
+(\texttt{TCP\_RR}) between two simulated hosts.
+%
+We focus on four configurations for common systems research
+use-cases: debugging and performance evaluation of hardware and
+software prototypes.
+%
+Debugging HW \& SW is most productive when fast and interactive,
+while accurate performance is not the primary concern.
+%
+Here we combine QEMU with KVM for fast host simulation, our fast
+switch model, and either the \texttt{i40e} NIC for SW testing or
+Verilator with Corundum as a HW example.
+%
+Performance evaluation on the other hand requires accurate results, but it can
+tolerate longer simulation times.
+%
+We use a detailed gem5 host simulator and ns-3 for SW performance evaluation,
+while choosing a less detailed but time-synchronized QEMU simulator for
+benchmarking our HW prototype.
+
+
+
+\begin{table}%
+\centering%
+\begin{tabular}{lrrrr}%
+    \toprule
+    \textbf{Use-case} & \multicolumn{2}{c}{netperf} &
+        \multicolumn{1}{c}{Sim.} \\
+    Simulator Combination & T'put & Latency &
+        \multicolumn{1}{c}{Time} \\
+    \midrule
+
+    \textbf{SW debugging} & 4.37\,G & 71\,$\mu$s & 00:00:32 \\
+    \multicolumn{4}{l}{QEMU-kvm + behavioral i40e NIC + behavioral
+      switch} \\[.3em]
+
+    \textbf{SW perf. evaluation*} & 8.92\,G & 20\,$\mu$s & 12:49:46  \\
+    \multicolumn{4}{l}{gem5 + behavioral i40e NIC + ns-3} \\[.3em]
+
+    \textbf{HW debugging} & 81\,M & 3.4\,ms & 00:00:31 \\
+    \multicolumn{4}{l}{QEMU-kvm + Corundum Verilog + behavioral
+      switch} \\[.3em]
+
+    \textbf{HW perf. evaluation*} & 6.55\,G & 32\,$\mu$s & 04:13:10 \\
+    \multicolumn{4}{l}{QEMU-timing + Corundum Verilog + behavioral
+      switch}\\
+    \bottomrule\\
+\end{tabular}%
+\caption{\sysname configurations for different use-cases, with
+    measured simulation time and application performance.
+    Configurations with * are synchronized and deterministic, while
+    the others are unsynchronized emulation.}%
+\label{tab:modcombo}%
+\vspace{-5mm}%
+\end{table}
+
+Our results in \autoref{tab:modcombo} confirm the expected trade-off between
+simulation time and simulator detail: simulation times range from 31s to 18
+hours.
+%
+The results show that, \sysname can effectively help navigate this trade-off by
+only using detailed simulators when details matter for the use-case.
+%
+Even combining fast QEMU-kvm with an unsynchronized RTL simulation is
+fast enough (31s) to test and debug the full system.
+%
+Modularity also allows us to late bind simulator choices, \eg if we
+later realize that QEMU-timing is not sufficiently accurate, we can
+replace it with gem5 without additional changes.
+
+
+\paragraph{All combinations are functional.}
+Besides these four configurations, we also evaluated the full cross-product of
+simulator choices (\autoref{sec:impl}) and confirm \sysname supports all
+combinations (subset of performance results in
+\autoref{ssec:appendix:simcombos}).
+
+\paragraph{\sysname interfaces are general.}
+\sysname interfaces are generic and serve as narrow waists between
+simulators.
+%
+To further demonstrate its generality, we extracted gem5's
+\texttt{e1000} Intel NIC model, adapted it to \sysname's PCIe
+interface without other modifications, and verified that it is
+compatible with gem5 and QEMU.
+%
+To show that \sysname's PCIe interface generalizes beyond NICs, we
+have adapted FEMU~\cite{li:femu}'s NVMe SSD model from their QEMU
+fork into a separate simulator.
+%
+This simulator also works in combination with QEMU and gem5.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{\sysname is Fast}
+We now show \sysname does not significantly slow down simulators
+through synchronization, and can even speed up simulations through
+decomposition into parallel components.
+
+\subsubsection{Synchronization}
+\label{ssec:eval:syncproto}
+
+\paragraph{Overhead.}
+We measure synchronization overhead by comparing simulation time
+for gem5 standalone and in \sysname.
+%
+The experiment does not use the network, but for synchronization, we
+connect the gem5 to \texttt{i40e} NIC in \sysname and to our switch.
+%
+We first compare a low-event workload in gem5: executing
+\texttt{sleep 10}.
+%
+The simulation takes 2.25\,min standalone and 2.91\,min in \sysname, a
+30\% overhead.
+%
+This is the worst case -- gem5 is almost exclusively handling
+\sysname synchronization events (every 500\,ns), as the CPU is mostly
+halted.
+%
+For a high-event workload we use \texttt{dd} to read from
+\texttt{/dev/urandom} to keep the CPU busy.
+%
+This simulation takes 100.26\,min standalone and 101.06\,min in
+\sysname, a mere 0.8\% overhead.
+%
+\emph{\sysname incurs manageable synchronization overhead, and
+does not significantly slow down already slow simulations.}
+
+\paragraph{Comparison to dist-gem5.}
+Next, we compare to dist-gem5~\cite{mohammad:distgem5} which
+interconnects multiple gem5 instances and employs conventional
+epoch-based global synchronization over TCP.
+%
+We configure 2 to 32 instances of gem5 that communicate pairwise using
+iperf, through the \texttt{e1000} NIC in gem5 and a single switch.
+%
+For \sysname we use our gem5 Ethernet adapter to connect to our
+switch model.
+%
+Our simulation time measurements in \autoref{fig:dist-gem} show that
+\emph{\sysname is more efficient than dist-gem5, especially with
+increasing scale}.
+%
+\sysname reduces simulation time by 27\% for 2 hosts, and by 74\% for 32 hosts.
+
+\paragraph{Sensitivity to link latency.}
+\sysname synchronization overhead is linked with the configured link
+latency, which places a lower bound on sync message frequency.
+%
+We measure how link latency affects synchronization overhead, with
+a pair of gem5 hosts running \texttt{netperf} for 1\,s of throughput
+and latency measurements each, connected to \texttt{i40e} NICs and a
+shared switch.
+%
+We vary the configured PCIe latency and sync interval, and report our
+results in \autoref{fig:pcilat}.
+%
+While synchronization time does increase, \emph{lowering the link
+latency by three orders of magnitude (from 1\,$\mu$s to 1\,ns) only
+increases simulation time by 59\%}, demonstrating that \sysname can
+effectively parallelize simulations across low-latency interconnects.
+
+
+\begin{figure*}%
+\centering%
+\begin{minipage}{0.3\textwidth}%
+\centering%
+\input{figures/dist_gem.gnuplot.tex}%
+\caption{dist-gem5 vs. \sysname.}%
+\label{fig:dist-gem}%
+\end{minipage}%
+\hfill%
+\hfill%
+\begin{minipage}{0.3\textwidth}%
+\centering%
+\input{figures/scale_host.gnuplot.tex}%
+\caption{\sysname local scalability.}%
+\label{fig:machines-scale}%
+\end{minipage}%
+\hfill%
+\begin{minipage}{0.3\textwidth}%
+\centering%
+\input{figures/largescale.gnuplot.tex}%
+\caption{Distributed scalability.}%
+\label{fig:large-scale}%
+\end{minipage}%
+\Description{Three sub-figures (6, 7, and 8) with graphs showing simulation
+  time on the y-axis.
+
+  The first graph (figure 6) shows simulation time of
+  dist-gem5 compared to \sysname for varying number of simulated hosts on the
+  x-axis from 2 to 32. dist-gem5 is slower across the board and shows
+  exponentially increasing simulation time, while for \sysname it only slowly
+  increases. For two hosts \sysname is 27\% faster at around 360 min, and 74\%
+  faster for 32 at close to 450 min.
+
+  The second figure shows a line graph for gem5 in \sysname as the number of
+  hosts increases from 2 to 21. Bettween 2 and 5 the line is flat at 140
+  minutes, increasing to about 170 for 10 and 15, finally increasing to around
+  210 for 21 simulated hosts.
+
+  The third figure is another line graph, comparing gem5 and QEMU-timing for a
+  distributed experiment. For QEMU-timing simulation time increases
+  approximately linearly from 130 min with 40 hosts to about 330 with
+  1000 hosts. With gem-5 it increases from 930 min with 40 hosts to
+  about 1060 with 1000 hosts.}%
+\end{figure*}
+
+
+\subsubsection{Decomposition for Parallelism}
+\label{ssec:eval:decomp}
+%
+\paragraph{Extracting NIC from gem5.}
+When connecting synchronized simulators, the best \sysname can achieve
+is to not slow them down beyond the slowest component simulator.
+%
+However, \sysname enables developers to decompose monolithic
+simulators into connected components (\autoref{ssec:eval:compsim})
+running in parallel, thereby accelerating simulation.
+%
+We evaluate this by comparing two gem5 configurations in \sysname:
+first, gem5 with the built-in \texttt{e1000} NIC connected via our
+Ethernet adapter, and second, gem5 connected to our \texttt{i40e} NIC
+model through the PCIe interface.
+%
+In both cases we run a pair of hosts connected to our switch model.
+%
+The first configuration takes 350 minutes, while the second only takes 138
+minutes: \emph{Parallelism from the external NIC simulator reduces simulation
+time by 60\%}.
+
+\paragraph{Network simulator as scalability bottleneck.}
+Network simulators are potential scalability bottlenecks in \sysname,
+as they often connect many NICs, while hosts and NICs typically only connect
+one and two peers, respectively.
+%
+To demonstrate this bottleneck, we develop a packet generator as a dummy NIC
+that implements the \sysname Ethernet interface and the synchronization
+mechanism.
+%
+The dummy NIC simply injects packets at a configured rate.
+%
+We now measure simulation time for 2 and 32 dummy NICs connected to
+one switch for 1 second of virtual time.
+%
+First we set the packet rate to 0 (to only measure synchronization overhead) and
+measure an increase from 2.6\,s to 17.6\,s of simulation time.
+%
+Next, we set the packet rate to 100\,Gbps on each NIC, and measure the
+simulation time increases from 12.6\,s to 211.6\,s.
+%
+This experiment confirms that \emph{a single network simulator can become a
+bottleneck for fast simulations}.
+%
+We have so far not observed this outside of this microbenchmark.
+
+\paragraph{Parallelizing network simulation.}
+To address this bottleneck in \sysname, we can decompose the network into
+multiple network simulators carved up at natural boundaries (\eg switches or
+groups thereof).
+%
+We demonstrate this by modifying the microbenchmark to divide the 32
+hosts to 4 ``ToR'' switches, connected through a fifth ``core''
+switch.
+%
+With this configuration, the simulation time for packet rate 0 is 9.6\,s down by
+45\% compared to the single switch setup, and 96.8\,s at 100\,Gbps packet rate,
+a 53\% reduction.
+%
+\emph{Decomposing network simulators, therefore, can effectively reduce
+simulation time at scale.}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{\sysname is Scalable}
+\label{ssec:eval:scalability}
+We now evaluate scalability for local and distributed simulations.
+
+\subsubsection{Scaling Up}\hfill\\
+First, we measure simulation time as we vary the number of simulated
+gem5 hosts and \texttt{i40e} NICs connected to a single switch,
+running on a single physical host.
+%
+We set up one server and a variable number of client hosts, running
+the same UDP iperf benchmark.
+%\jialin{is it iperf or netperf?}
+%
+To avoid overloading the server, we fix the aggregate throughput to
+1\,Gbps.
+%
+The results in \autoref{fig:machines-scale} show the simulation time
+increases with the number of clients, from 138\,min with 2
+hosts to 205\,min with 21 hosts (48\% increase).
+
+Surprisingly, the longer simulation time is \emph{not} caused by scalability
+bottlenecks in \sysname synchronization.
+%
+Instead, we discovered that this increase is due to thermal
+throttling of our host CPU slowing down all cores as more active.
+%
+To confirm this, we run multiple independent instances of the
+1-client experiment and measure how this affects simulation time.
+%
+When running 4 independent instances of the 2-host simulations (5
+cores each), using a total of 20 cores in the same NUMA node, the
+simulation takes 171\,min.
+%
+This matches the runtime of the 10-host simulation above, which uses
+21 cores in total.
+%
+We conclude that \emph{\sysname scales at least to the moderate
+cluster sizes typical for many of our evaluations}.
+
+
+\begin{figure*}%
+\centering%
+\begin{minipage}{0.28\textwidth}%
+\centering%
+\input{figures/pcilat.gnuplot.tex}%
+\caption{Sensitivity of \sysname simulation time to link latency.}%
+\label{fig:pcilat}%
+\end{minipage}%
+\hfill%
+\begin{minipage}{0.45\textwidth}%
+\centering%
+\input{figures/nopaxos_seq.gnuplot.tex}%
+\caption{NOPaxos in \sysname with a Tofino switch sequencer and with a
+    sequencer on a simulated host.}%
+\label{fig:nopaxos-seq}%
+\end{minipage}%
+\hfill%
+\begin{minipage}{0.2\textwidth}%
+\centering%
+\vspace{4mm}
+\includegraphics[width=0.8\linewidth]{figures/large_scale.pdf}
+\vspace{8mm}
+\caption{Large scale simulation configuration.}
+\label{fig:largescale-config}
+\end{minipage}%
+\Description{Three subfigures: 9, 10, 11.
+
+  The first subfigure (fig. 9) is a bar graph with PCIe latency on the
+  x-axis and simulation time on the y-axis. As the latency increases
+  from 1\,ns to 1000\,ns simulation time decreases from 117 minutes to
+  about 72.
+
+  The second subfigure (fig. 10) is a line graph comparing latency on
+  the y-axis for end-host sequencer, switch-sequencer, and Multi-Paxos
+  as throughput on the x-axis increases. The lowest line is the switch
+  sequencer flat at around 40 microseconds starting at 20 thousand
+  requests per second, until it hist saturation and rapidly increases
+  at 75 thousand requests per second. The end-host sequencer
+  configuration achieves a flat higher latency at around 55
+  microseconds and saturates at the same point. Multi-Paxos already
+  incurs 70 microseconds at 12 thousand requests, 90 microseconds at
+  20 thousand requests, and then saturates.
+
+  The third subfigure (fig. 11) is a diagram showing the large-scale
+  simulation configuration, with boxes representing groups of
+  simulators running on separate physical server. Each server contains
+  a group of simulators and connects to one central server through
+  proxy links. One server contains just one core switch. The remaining
+  servers contain a top of rack switch, and multiple NIC-host
+  simulators connecting to the top of rack switch. The Top of rack
+  switch connects to the core switch through the proxy.}%
+\end{figure*}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsubsection{Scaling Out}\hfill\\
+%
+We now move on to \sysname simulations running across
+multiple physical hosts, using our RDMA and TCP proxies
+(\autoref{fig:largescale-config}).
+
+\paragraph{Overhead of distributed simulation.}
+First we compare performance for local simulations to equivalent
+distributed simulations with the \sysname proxies, to measure
+overheads.
+%
+We use two qemu-kvm hosts running \texttt{netperf} connected to
+\texttt{i40e} NICs which connect to the same switch.
+%
+Locally, this unsynchronized simulation yields a throughput of
+4.4\,Gbps, and a latency of 71\,$\mu$s.
+%
+Next we distribute the simulation by running one pair of QEMU and NIC
+on a second server and proxying the Ethernet connection to the switch
+running locally.
+%
+With the sockets proxy the latency increases to 305\,$\mu$s and
+throughput remains constant, and with RDMA both remain constant.
+%
+Next we measure simulation time for the same configuration but with
+QEMU timing and gem5, and find that simulation time does not change
+with either proxy.
+%
+We conclude that \emph{\sysname proxies are no bottleneck for
+synchronized simulations.}
+
+\paragraph{Large-scale memcache cluster.}
+To evaluate scalability to larger systems, we next run multiple
+distributed simulations ranging from 40 to 1000 simulated hosts, on 1
+to 26 physical servers.
+%
+We run these simulations on Amazon ec2 \texttt{c5.metal} (spot)
+instances, with 96 hyperthreads each, and 20\,Gbps network
+connectivity in a single proximity placement group.
+%
+We simulate a varying number of racks of 40 hosts with \texttt{i40e}
+NICs and a top of rack (ToR) switch each, that then connect to a
+single core switch, as shown in \autoref{fig:largescale-config}.
+%
+We assign the core switch and each rack to a dedicated server.
+%
+A separate sockets proxy pair (Amazon ec2 does not offer RDMA)
+connects each ToR to the core switch.
+%
+We run \texttt{memcached} on half of the hosts in each rack, and the
+\texttt{memaslap} client on the other half.
+%
+Each client randomly connects to the 20 servers on the same rack, and
+to 20 random servers in other racks.
+
+\autoref{fig:large-scale} shows the measured simulation time for 10\,s
+of virtual time as we increase the number of hosts.
+%
+From one rack and 40 hosts to 25 racks and 1000 hosts,
+simulation time with gem5 hosts increases by 13.8\% from 15.5\,h,
+to 17.6\,h.
+%
+With QEMU-timing, simulation time increases from 2.2\,h to 5.6\,h by
+2.5$\times$.
+%
+With profiling we found the cause to be QEMU's dynamic binary
+translation.
+%
+When an instance misses in its code cache and has to recompile a
+block, the instance blocks for a while.
+%
+While rare, at scale these occurrences grow more frequent, and slow down
+other hosts due to synchronization.
+%
+We conclude that \emph{\sysname scales to simulate systems with 100s
+of hosts.}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{\sysname is Accurate}
+\label{ssec:eval:accurate}
+We now show \emph{\sysname Ethernet and PCIe interfaces accurately
+connect and synchronize simulators}.
+%
+For Ethernet, we first run a pure ns-3 simulation of two communicating
+nodes connected by a network link with our default parameters, and
+log packet timestamps on each node.
+%
+Next, we repeat the experiment with two ns-3 instances each containing
+one node and a \sysname Ethernet adapter, and connect the two.
+%
+For PCIe, we run two gem5 instances running netperf with the built-in
+\texttt{e1000} NIC connected through the \sysname Ethernet adapter to a
+switch.
+%
+We rerun this experiment with our standalone version of
+gem5's \texttt{e1000} connected to both simulators through the \sysname
+PCIe adapter.
+%
+In both cases we find that the timestamped logs match \textit{exactly},
+demonstrating the correctness of our synchronization.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{\sysname is Deterministic}
+\label{ssec:eval:deterministic}
+Finally, we verify that \emph{\sysname simulations with deterministic component
+simulators yields deterministic end-to-end simulations}.
+%
+To this end, we have repeated the two configurations combining only
+deterministic simulators in \autoref{tab:modcombo} 5 times on
+different machines.
+%
+We then compared event timestamps in the simulation logs and found
+that they match \textit{exactly}.

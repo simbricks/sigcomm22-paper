@@ -1,0 +1,9 @@
+num_client ehseq-tput(req/sec) ehseq-lat(us) swseq-tput(req/sec) swseq-lat(us) vr-tput(req/sec) vr-lat(us)
+
+17806 53 21877 43 13564 71
+34848 52 42527 43 21447 90
+65106 54 76032 46 21577 136
+76791 58 77417 69
+78092 67 76953 96
+77939 93 76678 120
+77655 117
